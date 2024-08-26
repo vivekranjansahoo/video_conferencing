@@ -13,7 +13,6 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @WebSocketServer()
   server: Server;
-
   private clients: Map<string, string> = new Map();
 
   constructor(private webrtcService:WebrtcService) {}
@@ -30,10 +29,16 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('join-room')
   async handleJoinRoom(client: Socket, room: string): Promise<void> {
+
+    const roomInfo = this.webrtcService.rooms[room];
     if(this.webrtcService.rooms[room].members.length === 2){
       client.emit('error',"Room is full.")
-      return
-     }
+      return ;
+    }else if(roomInfo.hostSocketId!==client.id && roomInfo.members.length===0){
+      client.emit('error',"Wait till host join.")
+      return ;
+    }
+
     console.log(`Client ${client.id} joined room: ${room}`);
     client.join(room);
     this.webrtcService.rooms[room].members.push(client);
@@ -50,7 +55,6 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
     
     client.leave(room);
     const roomDetails = this.webrtcService.rooms[room];
-    console.log(roomDetails)
 
     if (roomDetails.host === userId) {
       roomDetails.members.forEach((member) => {
@@ -69,42 +73,22 @@ export class WebrtcGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 
   @SubscribeMessage('webrtc-signal')
-  async handleWebrtcSignal(client: Socket, payload: any): Promise<void> {
-    const signal = payload;
-    // console.log(`Received signal from ${client.id} for ${target}`);
-    
-    // Relay the signal to the target client
-    // this.server.to(target).emit('webrtc-signal', {
-    //   sender: client.id,
-    //   signal,
-    // });
-
-    client.broadcast.emit('webrtc-signal', {
+  async handleWebrtcSignal(client: Socket, payload: {roomId:string,signal:any}): Promise<void> {
+    const {roomId,signal} = payload;
+    console.log(roomId,signal)
+    client.to(roomId).emit('webrtc-signal', {
       signal
     })
 
   }
 
   @SubscribeMessage('ice-candidate')
-  async handleIceCandidate(client: Socket, payload: any): Promise<void> {
-    const { signal } = payload;
-    // console.log(`Received signal from ${client.id} for ${target}`);
-    
-    // Relay the signal to the target client
-    // this.server.to(target).emit('webrtc-signal', {
-    //   sender: client.id,
-    //   signal,
-    // });
-
-    client.broadcast.emit('ice-candidate', {
-      signal
-    })
+  async handleIceCandidate(client: Socket, candidate: RTCIceCandidateInit): Promise<void> {
+      if (candidate && candidate.sdpMid !== null && candidate.sdpMLineIndex !== null) {
+          client.broadcast.emit('ice-candidate', candidate);
+      } else {
+          console.error('Received invalid ICE candidate:', candidate);
+      }
   }
+
 }
-
-
-
-  // @SubscribeMessage('message')
-  // handleMessage(client: any, payload: any): string {
-  //   return 'Hello world!';
-  // }
